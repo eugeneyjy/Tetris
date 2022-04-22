@@ -8,6 +8,12 @@ class Field {
     this.holdpiece = null;
     this.held = false;
     this.hint;
+    this.lose = false;
+    this.score = 0;
+    this.lines = 0;
+    this.level_need = 10;
+    this.level = 0;
+    this.last_random = -1;
     this.fillGrid();
     this.nextpiece = this.spawnTetromino(nextpiece_x,nextpiece_y);
     this.spawnNext();
@@ -25,33 +31,78 @@ class Field {
   showNextPiece() {
     var x = offset_x + (nextpiece_x-1)*blockSize;
     var y =  offset_y + (nextpiece_y-1.5)*blockSize;
+    var side = 5*blockSize;
     fill(0);
-    textSize(32);
+    noStroke();
+    textSize(text_size);
+    textStyle(NORMAL);
     textFont(font);
-    text('NEXT',x+blockSize, y-0.5*blockSize);
+    textAlign(CENTER);
+    text('NEXT',x+side/2, y-0.5*blockSize);
     stroke(0);
     strokeWeight(bold);
-    noFill();
-    rect(x, y, 5*blockSize, 5*blockSize);
+    fill(255);
+    rect(x, y, side, side);
     this.nextpiece.show();
   }
 
   showHoldingPiece() {
     var x = offset_x + (holdpiece_x-1)*blockSize;
     var y =  offset_y + (holdpiece_y-1.5)*blockSize;
+    var side = 5*blockSize;
     fill(0);
-    textSize(32);
+    noStroke();
+    textSize(text_size);
+    textStyle(NORMAL);
     textFont(font);
-    text('HOLD',x+blockSize, y-0.5*blockSize);
+    textAlign(CENTER);
+    text('HOLD',x+side/2, y-0.5*blockSize);
     stroke(0);
     strokeWeight(bold);
-    noFill();
-    rect(x, y, 5*blockSize, 5*blockSize);
+    fill(255);
+    rect(x, y, side, side);
     if(this.holdpiece)
       this.holdpiece.show();
   }
 
+  showWords(words, x, y, font_size) {
+    var x = offset_x + x*blockSize;
+    var y = offset_y + y*blockSize;
+    var side = 5*blockSize;
+    fill(0);
+    noStroke();
+    textSize(font_size);
+    textStyle(NORMAL);
+    textFont(font);
+    textAlign(CENTER);
+    text(words, x, y);
+  }
+
+  showScoreBoard() {
+    // this.showScore();
+    // this.showLineCleared();
+    var x = offset_x + (line_x-2.5)*blockSize;
+    var y = offset_y + (score_y-1)*blockSize;
+    var width = 5*blockSize;
+    var height = 7.5*blockSize;
+    stroke(0);
+    strokeWeight(bold);
+    fill(255);
+    rect(x, y, width, height);
+    this.showWords("SCORE", score_x, score_y, score_size);
+    this.showWords(this.score, score_x, score_y+1, score_size);
+    this.showWords("LINES", line_x, line_y, score_size);
+    this.showWords(this.lines, line_x, line_y+1, score_size);
+    this.showWords("LEVEL", level_x, level_y, score_size);
+    this.showWords(this.level, level_x, level_y+1, score_size);
+  }
+
   show() {
+    rectMode(CORNER);
+    stroke(0);
+    strokeWeight(borderWeight);
+    fill(238, 238, 238);
+    rect(borderWeight, borderWeight, canvasWidth, canvasHeight);
     for(var y = 0; y < this.grid.length; y++){
       for(var x = 0; x < this.grid[y].length; x++){
         if(this.grid[y][x].state == 0)
@@ -73,6 +124,7 @@ class Field {
     this.movingpiece.show();
     this.showNextPiece();
     this.showHoldingPiece();
+    this.showScoreBoard();
   }
 
   placeTetromino() {
@@ -89,6 +141,7 @@ class Field {
   }
 
   clearLines() {
+    var linecleared = 0;
     for(var y = 0; y < this.grid.length; y++){
       var linefull = true;
       for(var x = 0; x < this.grid[y].length; x++){
@@ -98,8 +151,35 @@ class Field {
       }
       if(linefull){
         this.clearLine(y);
+        linecleared++;
       }
     }
+    // if(linecleared > 0){
+    //   sleep(linesleep);
+    // }
+    return linecleared;
+  }
+
+  addScore(linecleared) {
+    if(linecleared == 1)
+      this.score += 40;
+    else if(linecleared == 2)
+      this.score += 100;
+    else if(linecleared == 3)
+      this.score += 300;
+    else if(linecleared == 4)
+      this.score += 1200;
+    this.lines += linecleared;
+  }
+
+  isLose() {
+    var losing = false;
+    for(var x = 0; x < this.grid[0].length; x++){
+      if(this.grid[0][x].state == 1){
+        losing = true;
+      }
+    }
+    return losing;
   }
 
   offsetPiece(piece) {
@@ -120,19 +200,53 @@ class Field {
     this.offsetPiece(this.nextpiece);
   }
 
-  update() {
-    if(this.movingpiece.touchGround(this.grid)){
-      this.placeTetromino();
-      this.clearLines();
-      this.spawnNext();
-      this.held = false;
-    }else{
-      this.movingpiece.moveDown(1);
+  adjustLevel() {
+    if(this.lines >= this.level_need){
+      this.level++;
+      this.level_need += 10;
+      this.adjustGravity();
+    }
+  }
+
+  adjustGravity() {
+    if(this.level >= 0 && this.level <= 8){
+      gravity -= 5;
+    }else if(this.level == 9){
+      gravity -= 2;
+    }else if(this.level == 10 || this.level == 13 || this.level == 16 || this.level == 19 || this.level == 29){
+      gravity -= 1;
+    }
+    timer = (gravity/framesPerSec)*1000;
+    clearInterval(update_interval);
+    update_interval = setInterval(function(){field.update();}, timer);
+  }
+
+  update(type) {
+    if(!this.lose){
+      if(this.movingpiece.touchGround(this.grid)){
+        var linecleared;
+        this.placeTetromino();
+        if(type != 0)
+          sleep(putsleep);
+        linecleared = this.clearLines();
+        this.addScore(linecleared);
+        this.lose = this.isLose();
+        if(!this.lose)
+          this.spawnNext();
+        this.held = false;
+        this.adjustLevel();
+      }else{
+        this.movingpiece.moveDown(1);
+      }
     }
   }
 
   spawnTetromino(x, y) {
     var random1 = Math.floor(Math.random()*7);
+    if(random1 == this.last_random){
+      random1 = Math.floor(Math.random()*7);
+    }
+    this.last_random = random1;
     var tetromino;
     switch(random1) {
       case 0:
@@ -250,10 +364,18 @@ class Field {
       this.rotatePiece();
     }else if(keyCode == 32){
       this.pieceStraightDown();
-      this.update();
+      this.update(0);
     }else if(keyCode == 67){
       if(this.held == false)
         this.hold();
     }
   }
+}
+
+function sleep(milliseconds) {
+  const date = Date.now();
+  let currentDate = null;
+  do {
+    currentDate = Date.now();
+  } while (currentDate - date < milliseconds);
 }
